@@ -49,8 +49,8 @@ class WS2812Controller:
         self.device_address = None
         self.client = None
 
-        # Start a dedicated background thread with its own event loop.
-        # All bleak operations (BleakClient/Scanner) must run on the same loop.
+        # Start a background event loop thread so BleakClient and scanner
+        # always run on the same asyncio event loop.
         import threading
 
         self._loop = asyncio.new_event_loop()
@@ -58,18 +58,13 @@ class WS2812Controller:
         self._thread.start()
 
     def _run_loop(self):
-        # Run the background event loop forever in a thread
         asyncio.set_event_loop(self._loop)
         self._loop.run_forever()
 
     def _run_coro(self, coro):
-        """Run a coroutine on the controller's background event loop and
-        return its result synchronously.
-        """
         fut = asyncio.run_coroutine_threadsafe(coro, self._loop)
         return fut.result()
 
-    # Convenience synchronous wrappers so UI code does not use asyncio.run()
     def connect(self, device_name: str) -> bool:
         return self._run_coro(self.connect_device(device_name))
 
@@ -93,9 +88,10 @@ class WS2812Controller:
                 await self.client.connect()
                 return True
             return False
-        except Exception as e:
-            # Avoid directly calling Streamlit UI functions from background
-            # coroutine code; raise instead so callers can show messages.
+        except Exception:
+            # Re-raise so callers (UI) can present the error message in the
+            # Streamlit context rather than trying to call Streamlit inside the
+            # background coroutine thread.
             raise
 
     async def send_command(self, event: int, subevent: int, payload: bytes = b"") -> Dict[str, Any]:
